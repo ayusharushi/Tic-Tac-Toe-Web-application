@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Tic‑Tac‑Toe — Play vs Human or AI</title>
+  <style>
+    :root{--bg:#071027;--card:#0f1724;--accent:#00c8ff;--accent2:#6ee7b7;--text:#e6eef6;--muted:#9aa6b2}
+    *{box-sizing:border-box}
+    html,body{height:100%;margin:0;background:linear-gradient(180deg,#061226,#071b2b);color:var(--text);font-family:Inter,system-ui,Segoe UI,Roboto,Arial}
+    .wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:28px}
+    .card{width:min(540px,96%);background:linear-gradient(180deg,var(--card),#071029);border-radius:14px;padding:18px;box-shadow:0 10px 30px rgba(2,6,23,0.6)}
+    h1{margin:0;font-size:18px}
+    .top{display:flex;align-items:center;gap:12px}
+    .controls{display:flex;gap:8px;margin-top:12px;align-items:center}
+    .btn{padding:8px 12px;border-radius:8px;border:none;background:transparent;color:var(--text);cursor:pointer;font-weight:700}
+    .btn.primary{background:linear-gradient(90deg,var(--accent),var(--accent2));color:#032}
+    .board{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:16px}
+    .cell{aspect-ratio:1/1;display:flex;align-items:center;justify-content:center;font-size:48px;background:rgba(255,255,255,0.02);border-radius:10px;cursor:pointer;user-select:none;transition:transform 120ms}
+    .cell:hover{transform:translateY(-4px)}
+    .meta{display:flex;justify-content:space-between;align-items:center;margin-top:12px;color:var(--muted);font-size:14px}
+    .winner{margin-top:12px;padding:10px;border-radius:10px;background:linear-gradient(90deg,rgba(0,200,255,0.06),rgba(110,231,183,0.04));font-weight:700}
+    .highlight{box-shadow:0 6px 18px rgba(0,200,255,0.12) inset, 0 6px 28px rgba(0,200,255,0.06)}
+    .mode{display:flex;gap:6px;align-items:center}
+    @media (max-width:420px){.cell{font-size:36px}}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card" role="application" aria-label="Tic Tac Toe">
+      <div class="top">
+        <div style="flex:1">
+          <h1>Tic‑Tac‑Toe</h1>
+          <div style="color:var(--muted);font-size:13px">Get three in a row. Choose mode and start playing.</div>
+        </div>
+        <div class="mode">
+          <label style="color:var(--muted);font-size:13px">Mode</label>
+          <select id="modeSelect" aria-label="Game mode">
+            <option value="pvp">Human vs Human</option>
+            <option value="pvc">Human vs Computer</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="controls">
+        <button class="btn primary" id="newBtn">New Game</button>
+        <button class="btn" id="undoBtn" title="Undo last move">Undo</button>
+        <div style="flex:1"></div>
+        <div id="scores" style="color:var(--muted);font-weight:700">X: 0 &nbsp; O: 0 &nbsp; Draws: 0</div>
+      </div>
+
+      <div class="board" id="board" role="grid" aria-label="Game board">
+        <!-- 9 cells injected by JS -->
+      </div>
+
+      <div id="status" class="winner" role="status" aria-live="polite" style="display:none"></div>
+
+      <div class="meta">
+        <div id="turn" style="color:var(--muted)">Turn: <strong id="turnPlayer">X</strong></div>
+        <div style="color:var(--muted);font-size:13px">Keyboard: 1-9 to place, U = Undo</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Game state
+    const boardEl = document.getElementById('board');
+    const modeSelect = document.getElementById('modeSelect');
+    const newBtn = document.getElementById('newBtn');
+    const undoBtn = document.getElementById('undoBtn');
+    const statusEl = document.getElementById('status');
+    const turnEl = document.getElementById('turnPlayer');
+    const scoresEl = document.getElementById('scores');
+
+    let board = Array(9).fill(null); // null, 'X' or 'O'
+    let current = 'X';
+    let running = false;
+    let history = []; // stack of moves {idx, player}
+    let scores = {X:0,O:0,draws:0};
+
+    // winning lines
+    const winLines = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+
+    function createBoard(){
+      boardEl.innerHTML = '';
+      for(let i=0;i<9;i++){
+        const cell = document.createElement('div');
+        cell.className = 'cell';
+        cell.setAttribute('role','button');
+        cell.setAttribute('aria-label', `Cell ${i+1}`);
+        cell.dataset.index = i;
+        cell.addEventListener('click', ()=>handleMove(i));
+        boardEl.appendChild(cell);
+      }
+    }
+
+    function render(){
+      Array.from(boardEl.children).forEach((cellEl,i)=>{
+        cellEl.textContent = board[i] || '';
+        cellEl.classList.toggle('highlight', false);
+      });
+      turnEl.textContent = current;
+      updateScoresUI();
+    }
+
+    function updateScoresUI(){
+      scoresEl.textContent = `X: ${scores.X} \u00A0 O: ${scores.O} \u00A0 Draws: ${scores.draws}`;
+    }
+
+    function startNew(){
+      board.fill(null); history = []; current='X'; running=true; statusEl.style.display='none'; render();
+      if(modeSelect.value === 'pvc' && current==='O'){ // let AI start if chosen
+        makeAIMove();
+      }
+    }
+
+    function handleMove(idx){
+      if(!running) return;
+      if(board[idx]) return; // occupied
+      place(idx, current);
+      checkAfterMove();
+    }
+
+    function place(idx, player){
+      board[idx]=player;
+      history.push({idx,player});
+      render();
+    }
+
+    function checkAfterMove(){
+      const winner = checkWinner(board);
+      if(winner){
+        running=false;
+        statusEl.style.display='block';
+        statusEl.textContent = `${winner} wins!`;
+        highlightWin(winner.line);
+        scores[winner.player]++;
+        return;
+      }
+      if(board.every(Boolean)){
+        running=false; statusEl.style.display='block'; statusEl.textContent='Draw'; scores.draws++;
+        return;
+      }
+      // swap turn
+      current = current === 'X' ? 'O' : 'X';
+      turnEl.textContent = current;
+      // if mode is pvc and it's O's turn (AI), make move
+      if(running && modeSelect.value === 'pvc' && current === 'O'){
+        setTimeout(makeAIMove, 220); // small delay for feel
+      }
+    }
+
+    function checkWinner(bd){
+      for(const line of winLines){
+        const [a,b,c] = line;
+        if(bd[a] && bd[a] === bd[b] && bd[a] === bd[c]){
+          return {player: bd[a], line};
+        }
+      }
+      return null;
+    }
+
+    function highlightWin(line){
+      line.forEach(i => boardEl.children[i].classList.add('highlight'));
+    }
+
+    // Undo
+    function undo(){
+      if(history.length === 0) return;
+      // If PVC and last move by AI, undo two moves to return to player's turn
+      const last = history.pop();
+      board[last.idx]=null;
+      if(modeSelect.value === 'pvc' && last.player === 'O' && history.length){
+        const prev = history.pop(); board[prev.idx]=null;
+        current = prev.player; // player's turn restored
+      } else {
+        current = last.player === 'X' ? 'O' : 'X';
+      }
+      running = true; statusEl.style.display='none'; render();
+    }
+
+    // Simple but strong AI using minimax (unbeatable)
+    function makeAIMove(){
+      // choose best idx
+      const best = minimax(board, 'O');
+      if(typeof best.index === 'number'){
+        place(best.index, 'O');
+        checkAfterMove();
+      }
+    }
+
+    function minimax(bd, player){
+      const avail = bd.map((v,i)=>v?null:i).filter(v=>v!==null);
+      const winner = checkWinner(bd);
+      if(winner){
+        return {score: winner.player === 'O' ? 10 : -10};
+      } else if(avail.length === 0){
+        return {score:0};
+      }
+
+      const moves = [];
+      for(const idx of avail){
+        const newBoard = bd.slice(); newBoard[idx]=player;
+        const result = minimax(newBoard, player === 'O' ? 'X' : 'O');
+        moves.push({index: idx, score: result.score});
+      }
+
+      // maximize for O, minimize for X
+      if(player === 'O'){
+        let bestScore = -Infinity; let bestMove = null;
+        for(const m of moves){ if(m.score > bestScore){ bestScore = m.score; bestMove = m; } }
+        return bestMove;
+      } else {
+        let bestScore = Infinity; let bestMove = null;
+        for(const m of moves){ if(m.score < bestScore){ bestScore = m.score; bestMove = m; } }
+        return bestMove;
+      }
+    }
+
+    // Keyboard support (1-9 mapped left-to-right top-to-bottom)
+    window.addEventListener('keydown', (e)=>{
+      if(e.key >= '1' && e.key <= '9'){
+        const idx = parseInt(e.key,10)-1; handleMove(idx);
+      } else if(e.key.toLowerCase() === 'u') undo();
+    });
+
+    // Event bindings
+    newBtn.addEventListener('click', ()=> startNew());
+    undoBtn.addEventListener('click', undo);
+    modeSelect.addEventListener('change', ()=> startNew());
+
+    // initialize
+    createBoard(); startNew(); updateScoresUI(); render();
+
+  </script>
+</body>
+</html>
